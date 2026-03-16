@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Agent {
+  id        String   @id
+  name      String
+  ip        String
+  manager   String?
+  createdAt DateTime @default(now())
+
+  alerts          Alert[]
+  behaviourMetrics BehaviourMetric[]
+  riskScore       DeviceRisk?
+  riskHistory     RiskHistory[]
+
+  @@index([name])
+}
+
+model Alert {
+  id          String   @id @default(uuid())
+  wazuhId     String?  @unique
+
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id])
+
+  eventType   String
+  description String
+  severity    Int
+
+  category    String?
+  location    String?
+
+  sourceIp    String?
+  username    String?
+
+  rawLog      Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([agentId])
+  @@index([severity])
+  @@index([eventType])
+}
+
+model BehaviourMetric {
+  id           String   @id @default(uuid())
+
+  agentId      String
+  agent        Agent    @relation(fields: [agentId], references: [id])
+
+  loginCount        Int @default(0)
+  auditCommandCount Int @default(0)
+  networkChanges    Int @default(0)
+  malwareEvents     Int @default(0)
+
+  calculatedAt DateTime @default(now())
+
+  @@index([agentId])
+}
+
+model DeviceRisk {
+  id          String    @id @default(uuid())
+
+  agentId     String    @unique
+  agent       Agent     @relation(fields: [agentId], references: [id])
+
+  riskScore   Int
+  riskLevel   RiskLevel
+
+  lastUpdated DateTime  @updatedAt
+
+  @@index([riskLevel])
+}
+
+model RiskHistory {
+  id        String   @id @default(uuid())
+
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+
+  riskScore Int
+  riskLevel RiskLevel
+
+  createdAt DateTime @default(now())
+
+  @@index([agentId])
+}
+
+model SystemStat {
+  id          String   @id @default(uuid())
+
+  totalAlerts Int
+  highRisk    Int
+  mediumRisk  Int
+  lowRisk     Int
+
+  createdAt   DateTime @default(now())
+}

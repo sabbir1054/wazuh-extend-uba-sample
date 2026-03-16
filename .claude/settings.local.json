@@ -22,7 +22,8 @@
       "Bash(rm:*)",
       "Bash(yarn add:*)",
       "Bash(npx:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(psql:*)"
     ],
     "deny": [],
     "ask": []
