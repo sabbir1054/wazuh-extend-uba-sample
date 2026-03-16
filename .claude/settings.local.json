@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(npm run build:*)",
+      "Bash(yarn build)",
+      "mcp__ide__getDiagnostics",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(dir:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(powershell -Command:*)",
+      "Bash(grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(tree:*)",
+      "Bash(npm install:*)",
+      "Bash(npx next build)",
+      "Bash(wc:*)",
+      "Bash(node -e:*)",
+      "Bash(yarn install:*)",
+      "Bash(rm:*)",
+      "Bash(yarn add:*)",
+      "Bash(npx:*)",
+      "Bash(cd:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
