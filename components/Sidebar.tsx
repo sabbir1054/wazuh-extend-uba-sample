@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   ScrollText,
-  Users,
+  Monitor,
   Shield,
   Moon,
   Sun,
@@ -25,9 +25,9 @@ const navItems = [
     icon: ScrollText,
   },
   {
-    label: "Users",
-    href: "/users",
-    icon: Users,
+    label: "Devices",
+    href: "/devices",
+    icon: Monitor,
   },
 ];
 

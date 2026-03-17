@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
@@ -9,24 +10,19 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  alerts,
-  userProfiles,
-  timelineData,
-  severityDistribution,
-  userLogs,
-} from "@/data/demo-data";
-import type { AlertSeverity } from "@/data/demo-data";
+  apiFetch,
+  type AlertSummary,
+  type DeviceRisk,
+} from "@/lib/api";
 import {
   ShieldAlert,
-  Users,
+  Monitor,
   Activity,
   AlertTriangle,
-  ArrowUpRight,
   Clock,
+  Loader2,
 } from "lucide-react";
 import {
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -39,20 +35,24 @@ import {
   Bar,
 } from "recharts";
 
-const severityColor: Record<AlertSeverity, string> = {
-  critical: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
-  high: "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20",
+function severityLabel(level: number) {
+  if (level >= 8) return "high";
+  if (level >= 4) return "medium";
+  return "low";
+}
+
+const severityColor: Record<string, string> = {
+  high: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
   medium:
-    "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+    "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20",
   low: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
 };
 
-const statusColor: Record<string, string> = {
-  open: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
-  investigating:
-    "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  resolved:
-    "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
+const riskLevelColor: Record<string, string> = {
+  HIGH: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
+  MEDIUM:
+    "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20",
+  LOW: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
 };
 
 function formatTime(iso: string) {
@@ -64,12 +64,10 @@ function formatTime(iso: string) {
 
 function RiskScoreBar({ score }: { score: number }) {
   const color =
-    score >= 75
+    score > 70
       ? "bg-red-500"
-      : score >= 50
+      : score > 40
       ? "bg-orange-500"
-      : score >= 25
-      ? "bg-yellow-500"
       : "bg-green-500";
 
   return (
@@ -85,18 +83,66 @@ function RiskScoreBar({ score }: { score: number }) {
   );
 }
 
-// Metrics
-const totalEvents = userLogs.length;
-const activeAlerts = alerts.filter((a) => a.status !== "resolved").length;
-const highRiskUsers = userProfiles.filter((u) => u.riskScore >= 70).length;
-const blockedActions = userLogs.filter((l) => l.status === "blocked").length;
-
-// Top risky users sorted by risk score
-const topRiskUsers = [...userProfiles]
-  .sort((a, b) => b.riskScore - a.riskScore)
-  .slice(0, 5);
-
 export default function DashboardPage() {
+  const [summary, setSummary] = useState<AlertSummary | null>(null);
+  const [devices, setDevices] = useState<DeviceRisk[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [s, d] = await Promise.all([
+          apiFetch<AlertSummary>("/alerts/summary"),
+          apiFetch<DeviceRisk[]>("/devices/risk"),
+        ]);
+        setSummary(s);
+        setDevices(d);
+      } catch (err) {
+        console.error("Failed to load dashboard:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <DashboardLayout>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            Failed to load dashboard data. Is the backend running?
+          </p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const highRiskDevices = devices.filter((d) => d.riskLevel === "HIGH").length;
+
+  // Build severity pie chart data
+  const severityDistribution = [
+    { name: "High (8+)", value: summary.highSeverity, fill: "#ef4444" },
+    { name: "Medium (4-7)", value: summary.mediumSeverity, fill: "#f97316" },
+    { name: "Low (0-3)", value: summary.lowSeverity, fill: "#22c55e" },
+  ];
+
+  // Build event type bar chart data
+  const eventTypeData = summary.byEventType.map((e) => ({
+    name: e.eventType.replace(/_/g, " "),
+    count: e.count,
+  }));
+
   return (
     <DashboardLayout>
       {/* Header */}
@@ -116,12 +162,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Total Events
+                  Total Alerts
                 </p>
-                <p className="mt-1 text-2xl font-bold">{totalEvents}</p>
-                <p className="mt-1 flex items-center text-xs text-green-600">
-                  <ArrowUpRight className="mr-0.5 h-3 w-3" />
-                  12% from yesterday
+                <p className="mt-1 text-2xl font-bold">
+                  {summary.totalAlerts}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  From all monitored devices
                 </p>
               </div>
               <div className="rounded-lg bg-blue-500/10 p-3">
@@ -136,11 +183,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Active Alerts
+                  High Severity
                 </p>
-                <p className="mt-1 text-2xl font-bold">{activeAlerts}</p>
-                <p className="mt-1 flex items-center text-xs text-red-600">
-                  <ArrowUpRight className="mr-0.5 h-3 w-3" />2 critical
+                <p className="mt-1 text-2xl font-bold text-red-500">
+                  {summary.highSeverity}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Severity level 8+
                 </p>
               </div>
               <div className="rounded-lg bg-red-500/10 p-3">
@@ -155,15 +204,17 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  High Risk Users
+                  High Risk Devices
                 </p>
-                <p className="mt-1 text-2xl font-bold">{highRiskUsers}</p>
+                <p className="mt-1 text-2xl font-bold text-orange-500">
+                  {highRiskDevices}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  of {userProfiles.length} total users
+                  of {devices.length} monitored
                 </p>
               </div>
               <div className="rounded-lg bg-orange-500/10 p-3">
-                <Users className="h-5 w-5 text-orange-500" />
+                <Monitor className="h-5 w-5 text-orange-500" />
               </div>
             </div>
           </CardContent>
@@ -174,11 +225,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Blocked Actions
+                  Medium Severity
                 </p>
-                <p className="mt-1 text-2xl font-bold">{blockedActions}</p>
+                <p className="mt-1 text-2xl font-bold text-yellow-500">
+                  {summary.mediumSeverity}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Threats prevented today
+                  Severity level 4-7
                 </p>
               </div>
               <div className="rounded-lg bg-yellow-500/10 p-3">
@@ -191,58 +244,30 @@ export default function DashboardPage() {
 
       {/* Charts Row */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Activity Timeline */}
+        {/* Event Type Distribution */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
-              Activity Timeline
+              Alerts by Event Type
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[260px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timelineData}>
-                  <defs>
-                    <linearGradient
-                      id="colorEvents"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                      <stop
-                        offset="95%"
-                        stopColor="#3b82f6"
-                        stopOpacity={0.0}
-                      />
-                    </linearGradient>
-                    <linearGradient
-                      id="colorAnomalies"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop
-                        offset="95%"
-                        stopColor="#ef4444"
-                        stopOpacity={0.0}
-                      />
-                    </linearGradient>
-                  </defs>
+                <BarChart data={eventTypeData} layout="vertical">
                   <CartesianGrid
                     strokeDasharray="3 3"
                     className="stroke-border"
+                    horizontal={false}
                   />
                   <XAxis
-                    dataKey="time"
-                    className="text-xs"
+                    type="number"
                     tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                   />
                   <YAxis
-                    className="text-xs"
+                    type="category"
+                    dataKey="name"
+                    width={140}
                     tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                   />
                   <Tooltip
@@ -253,32 +278,21 @@ export default function DashboardPage() {
                       fontSize: "12px",
                     }}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="events"
-                    stroke="#3b82f6"
-                    fill="url(#colorEvents)"
-                    strokeWidth={2}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="anomalies"
-                    stroke="#ef4444"
-                    fill="url(#colorAnomalies)"
-                    strokeWidth={2}
-                  />
-                </AreaChart>
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={18}>
+                    {eventTypeData.map((_, i) => (
+                      <Cell
+                        key={i}
+                        fill={
+                          ["#3b82f6", "#8b5cf6", "#ef4444", "#f97316", "#22c55e", "#06b6d4"][
+                            i % 6
+                          ]
+                        }
+                        fillOpacity={0.8}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
-            </div>
-            <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full bg-blue-500" />
-                Events
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full bg-red-500" />
-                Anomalies
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -291,7 +305,7 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[180px]">
+            <div className="h-45">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -318,7 +332,7 @@ export default function DashboardPage() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-1 grid grid-cols-2 gap-2">
+            <div className="mt-1 grid grid-cols-3 gap-2">
               {severityDistribution.map((item) => (
                 <div key={item.name} className="flex items-center gap-1.5">
                   <div
@@ -335,7 +349,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Bottom Row: Alerts + Top Risk Users */}
+      {/* Bottom Row: Recent Alerts + Top Risk Devices */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Recent Alerts */}
         <Card className="lg:col-span-2">
@@ -345,145 +359,149 @@ export default function DashboardPage() {
                 Recent Alerts
               </CardTitle>
               <Badge variant="outline" className="text-xs">
-                {activeAlerts} active
+                {summary.totalAlerts} total
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {alerts.slice(0, 5).map((alert) => (
-                <div
-                  key={alert.id}
-                  className="flex items-start gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-muted/50"
-                >
-                  <div className="mt-0.5">
-                    <ShieldAlert
-                      className={`h-4 w-4 ${
-                        alert.severity === "critical"
-                          ? "text-red-500"
-                          : alert.severity === "high"
-                          ? "text-orange-500"
-                          : alert.severity === "medium"
-                          ? "text-yellow-500"
-                          : "text-green-500"
-                      }`}
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
-                        {alert.title}
-                      </span>
-                      <Badge
-                        className={`text-[10px] ${severityColor[alert.severity]}`}
-                      >
-                        {alert.severity}
-                      </Badge>
-                      <Badge
-                        className={`text-[10px] ${statusColor[alert.status]}`}
-                      >
-                        {alert.status}
-                      </Badge>
+              {summary.recentAlerts.map((alert) => {
+                const sev = severityLabel(alert.severity);
+                return (
+                  <div
+                    key={alert.id}
+                    className="flex items-start gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="mt-0.5">
+                      <ShieldAlert
+                        className={`h-4 w-4 ${
+                          alert.severity >= 8
+                            ? "text-red-500"
+                            : alert.severity >= 4
+                            ? "text-orange-500"
+                            : "text-green-500"
+                        }`}
+                      />
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {alert.description}
-                    </p>
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {alert.username}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatTime(alert.timestamp)}
-                      </span>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">
+                          {alert.description}
+                        </span>
+                        <Badge className={`text-[10px] ${severityColor[sev]}`}>
+                          Level {alert.severity}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          {alert.device}
+                        </span>
+                        <span className="font-mono">{alert.ip}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {alert.eventType.replace(/_/g, " ")}
+                        </Badge>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatTime(alert.timestamp)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <RiskScoreBar score={alert.riskScore} />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
 
-        {/* Top Risk Users */}
+        {/* Top Risk Devices */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold">
-              Top Risk Users
+              Device Risk Scores
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {topRiskUsers.map((user) => (
+              {devices.map((device) => (
                 <div
-                  key={user.userId}
+                  key={device.agentId}
                   className="flex items-center justify-between rounded-lg border border-border p-3"
                 >
                   <div className="flex items-center gap-3">
                     <div
                       className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white ${
-                        user.riskScore >= 75
+                        device.riskLevel === "HIGH"
                           ? "bg-red-500"
-                          : user.riskScore >= 50
+                          : device.riskLevel === "MEDIUM"
                           ? "bg-orange-500"
-                          : "bg-yellow-500"
+                          : "bg-green-500"
                       }`}
                     >
-                      {user.username
-                        .split(".")
-                        .map((n) => n[0].toUpperCase())
-                        .join("")}
+                      {device.device.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-medium">{user.username}</p>
+                      <p className="text-sm font-medium">{device.device}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        {user.department}
+                        {device.ip}
                       </p>
                     </div>
                   </div>
-                  <RiskScoreBar score={user.riskScore} />
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={`text-[10px] ${riskLevelColor[device.riskLevel]}`}
+                    >
+                      {device.riskLevel}
+                    </Badge>
+                    <RiskScoreBar score={device.riskScore} />
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Mini bar chart of risk distribution */}
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">
-                Risk Distribution
-              </p>
-              <div className="h-[100px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={topRiskUsers}
-                    layout="vertical"
-                    margin={{ left: 0, right: 0 }}
-                  >
-                    <XAxis type="number" hide domain={[0, 100]} />
-                    <YAxis
-                      type="category"
-                      dataKey="username"
-                      hide
-                      width={0}
-                    />
-                    <Bar dataKey="riskScore" radius={[0, 4, 4, 0]} barSize={12}>
-                      {topRiskUsers.map((user, i) => (
-                        <Cell
-                          key={i}
-                          fill={
-                            user.riskScore >= 75
-                              ? "#ef4444"
-                              : user.riskScore >= 50
-                              ? "#f97316"
-                              : "#eab308"
-                          }
-                          fillOpacity={0.8}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+            {/* Mini bar chart */}
+            {devices.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  Risk Distribution
+                </p>
+                <div className="h-[100px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={devices}
+                      layout="vertical"
+                      margin={{ left: 0, right: 0 }}
+                    >
+                      <XAxis type="number" hide domain={[0, 100]} />
+                      <YAxis
+                        type="category"
+                        dataKey="device"
+                        hide
+                        width={0}
+                      />
+                      <Bar
+                        dataKey="riskScore"
+                        radius={[0, 4, 4, 0]}
+                        barSize={12}
+                      >
+                        {devices.map((d, i) => (
+                          <Cell
+                            key={i}
+                            fill={
+                              d.riskLevel === "HIGH"
+                                ? "#ef4444"
+                                : d.riskLevel === "MEDIUM"
+                                ? "#f97316"
+                                : "#22c55e"
+                            }
+                            fillOpacity={0.8}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
