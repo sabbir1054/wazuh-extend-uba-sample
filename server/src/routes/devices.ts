@@ -1,47 +1,15 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
 import prisma from "../prisma";
 
 const router = Router();
 
 /**
- * GET /api/devices/risk
- *
- * Return risk scores for all devices.
- */
-router.get("/risk", async (_req: Request, res: Response) => {
-  try {
-    const devices = await prisma.deviceRisk.findMany({
-      include: {
-        agent: {
-          select: { name: true, ip: true, manager: true },
-        },
-      },
-      orderBy: { riskScore: "desc" },
-    });
-
-    const formatted = devices.map((d) => ({
-      agentId: d.agentId,
-      device: d.agent.name,
-      ip: d.agent.ip,
-      manager: d.agent.manager,
-      riskScore: d.riskScore,
-      riskLevel: d.riskLevel,
-      lastUpdated: d.lastUpdated.toISOString(),
-    }));
-
-    res.json(formatted);
-  } catch (error) {
-    console.error("[Devices] Error:", error);
-    res.status(500).json({ error: "Failed to fetch device risks" });
-  }
-});
-
-/**
  * GET /api/devices/risk/:agentId
  *
  * Return detailed risk info for a single device including history and metrics.
+ * MUST be defined before /risk to avoid Express matching :agentId as "risk".
  */
-router.get("/risk/:agentId", async (req: Request, res: Response) => {
+router.get("/risk/:agentId", async (req, res) => {
   try {
     const { agentId } = req.params;
 
@@ -102,11 +70,44 @@ router.get("/risk/:agentId", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/devices/risk
+ *
+ * Return risk scores for all devices.
+ */
+router.get("/risk", async (_req, res) => {
+  try {
+    const devices = await prisma.deviceRisk.findMany({
+      include: {
+        agent: {
+          select: { name: true, ip: true, manager: true },
+        },
+      },
+      orderBy: { riskScore: "desc" },
+    });
+
+    const formatted = devices.map((d) => ({
+      agentId: d.agentId,
+      device: d.agent.name,
+      ip: d.agent.ip,
+      manager: d.agent.manager,
+      riskScore: d.riskScore,
+      riskLevel: d.riskLevel,
+      lastUpdated: d.lastUpdated.toISOString(),
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    console.error("[Devices] Error:", error);
+    res.status(500).json({ error: "Failed to fetch device risks" });
+  }
+});
+
+/**
  * GET /api/devices
  *
  * Return all monitored agents/devices.
  */
-router.get("/", async (_req: Request, res: Response) => {
+router.get("/", async (_req, res) => {
   try {
     const agents = await prisma.agent.findMany({
       include: {
